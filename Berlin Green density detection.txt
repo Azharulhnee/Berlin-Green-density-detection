@@ -1,0 +1,123 @@
+Map.centerObject(roi, 10);
+print(roi);
+
+
+//weather stations of berlin 
+//////////////////////////////////
+var weatherStDEBE010=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.349326 , 52.543041])
+var weatherStDEBE032=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.225144 , 52.473192])
+var weatherStDEBE034=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.430844 , 52.489451])
+var weatherStDEBE051=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.483079 , 52.644169])
+var weatherStDEBE056=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.64705 , 52.447697])
+var weatherStDEBE061=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.31825 , 52.463611])
+var weatherStDEBE063=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.441654 , 52.467534])
+var weatherStDEBE064=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 	13.433967 , 52.481709])
+var weatherStDEBE065=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.469931 , 52.514072])
+var weatherStDEBE068=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.418833 , 52.513606])
+var weatherStDEBE069=  /* color: #312ad6 */ /* shown true */ ee.Geometry.Point([ 13.38772 , 52.438115])
+
+	
+var bufDEBE010=weatherStDEBE010.buffer({"distance":1000})
+var bufDEBE032=weatherStDEBE032.buffer({"distance":1000})
+var bufDEBE034=weatherStDEBE034.buffer({"distance":1000})
+var bufDEBE051=weatherStDEBE051.buffer({"distance":1000})
+var bufDEBE056=weatherStDEBE056.buffer({"distance":1000})
+var bufDEBE061=weatherStDEBE061.buffer({"distance":1000})
+var bufDEBE063=weatherStDEBE063.buffer({"distance":1000})
+var bufDEBE064=weatherStDEBE064.buffer({"distance":1000})
+var bufDEBE065=weatherStDEBE065.buffer({"distance":1000})
+var bufDEBE068=weatherStDEBE068.buffer({"distance":1000})
+var bufDEBE069=weatherStDEBE069.buffer({"distance":1000})
+
+var weatherStation = ee.FeatureCollection([
+  
+  ee.Feature(bufDEBE010,{name:"weather Station bufDEBE010"}),
+  ee.Feature(bufDEBE032,{name:"weather Station bufDEBE032"}),
+  ee.Feature(bufDEBE034,{name:"weather Station bufDEBE034"}),
+  ee.Feature(bufDEBE051,{name:"weather Station bufDEBE051"}),
+  ee.Feature(bufDEBE056,{name:"weather Station bufDEBE056"}),
+  ee.Feature(bufDEBE061,{name:"weather Station bufDEBE061"}),
+  ee.Feature(bufDEBE063,{name:"weather Station bufDEBE063"}),
+  ee.Feature(bufDEBE064,{name:"weather Station bufDEBE064"}),
+  ee.Feature(bufDEBE065,{name:"weather Station bufDEBE065"}),
+  ee.Feature(bufDEBE068,{name:"weather Station bufDEBE068"}),
+  ee.Feature(bufDEBE069,{name:"weather Station bufDEBE069"}),
+  ])
+
+/////////////////////////////////////
+
+Map.addLayer(weatherStation,
+             {'color': 'blue'},
+             '1 km buffer around weather station');
+  
+  
+//showing shape file of melbourne
+Map.addLayer(roi)             
+Map.centerObject(roi, 10);
+print(roi);
+
+
+var image = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+          .filterDate('2019-06-01', '2020-08-31')
+          .filterMetadata('CLOUD_COVER','less_than', 16)
+          .filterBounds(roi)
+          .median()
+          .clip(weatherStation);
+print(image);
+
+//selecting Bands for NDVI calculation
+
+image = image.select(['B5','B4', 'B3','B2'], ['nir','red','green', 'blue']);
+//NDVI calculation 
+var ndvi = image.normalizedDifference(['nir','red']);
+
+//Viz params for NDVI image 
+var ndviParams = {min: -1, max: 1, palette: ['blue', 'white', 'green']};
+
+Map.addLayer(ndvi, ndviParams, 'NDVI image');
+
+// visualize and calculate area for NDVi range: 0.1 to 0.5 
+var filterNdviRange = ndvi.gte(0.2).and(ndvi.lte(0.5))
+var filtredNdvi_image = image.updateMask(filterNdviRange)
+Map.addLayer(filtredNdvi_image,{},"filtredNdvi_image" )
+
+//this function will calculate area for a specific NDVI range 
+var ndviRangeArea = function(min,max){
+  var area = ndvi.gte(min).and(ndvi.lte(max)).selfMask()
+                            .multiply(ee.Image.pixelArea()).rename('Area')
+                            .reduceRegion({reducer:ee.Reducer.sum(),
+                                          geometry: weatherStation,
+                                          scale:30,
+                                          maxPixels:1e9
+                                          })
+                                       
+return area.get('Area')
+}
+print("Moderate greenness( shrub, grassland) area is:",ndviRangeArea(0.2,0.5), "sq meter")
+print("High greenness (Trees, forest) area is: " ,ndviRangeArea(0.6,1), "sq meter") 
+print("No greenness (non-vegetation) area is: ",ndviRangeArea(-1,0.1), "sq meter")
+
+
+//Covert Featurecollection into Geometry
+var Roi = roisw.geometry()
+
+// Specify region, define palette, set larger aspect dimension size and generate PNG download link
+var pngThumbnail = ndvi.getThumbURL({
+  'min': -1,
+  'max': 1,
+  'palette': ['blue', 'white', 'green'],
+  'dimensions': 500,
+  'region':Roi,
+});
+print('Download link of NDVI png image of Berlin', pngThumbnail);
+
+
+// Export the Classified Image Output
+Export.image.toDrive({
+  image:image,
+  description:'NDVI_Berlin',
+  scale:30,
+  folder: 'Download_gee',
+  region:roisw,
+  maxPixels:1e13
+});
